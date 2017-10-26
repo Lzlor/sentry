@@ -3,8 +3,10 @@
 from __future__ import absolute_import
 
 from django.core import mail
+from mock import patch
 
-from sentry.models import OrganizationMember
+from sentry.auth import manager
+from sentry.models import OrganizationMember, User
 from sentry.testutils import TestCase
 
 
@@ -47,3 +49,20 @@ class OrganizationMemberTest(TestCase):
         msg = mail.outbox[0]
 
         assert msg.to == ['foo@example.com']
+
+    @patch('sentry.utils.email.MessageBuilder')
+    def test_send_sso_unlink_email(self, builder):
+        organization = self.create_organization()
+        provider = manager.get('dummy')
+        user = User(id=1, email='foo@example.com')
+        member = OrganizationMember(id=1, organization=organization, email=user.email, user=user)
+        with self.options({'system.url-prefix': 'http://example.com'}), self.tasks():
+            member.send_sso_unlink_email(user, provider)
+
+        context = builder.call_args[1]['context']
+
+        assert context['organization'] == organization
+        assert context['provider'] == provider
+
+        assert not context['has_password']
+        assert 'set_password_url' in context
